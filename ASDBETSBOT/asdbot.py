@@ -10,12 +10,17 @@ import random
 import requests
 from bs4 import BeautifulSoup
 import re 
+from google import genai  # Added for Gemini API integration
 
 # --- 1. CONFIGURATION ---
 
 # IMPORTANT: REPLACE WITH YOUR ACTUAL BOT TOKEN
 TOKEN: Final = "8260821750:AAGdFv5ARfph4-sPrfkr-YYShr2VNrUaYGM"
 BOT_USERNAME: Final = '@asdbets_bot'
+
+# Gemini Configuration
+GEMINI_API_KEY: Final = "AIzaSyBf9bW0BeXHQ-0mIe13uhnndtdnlF4PrP8"
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # General Configuration
 # Increased timeout to help with slow connections/scraping
@@ -60,32 +65,32 @@ NEPALI_PROVERBS = [
 # STATIC PRICE DATA (Scraping has been difficult, using snippet)
 STATIC_PRICE_SNIPPET: Final = """
 <div class="column6" style="margin-bottom: 40px;margin-top: 12px;">
-            <ul class="gold-silver" style="margin: 0">
-                <li onclick="$('.goldchart').hide();$('#goldchart').show();" style="cursor:pointer;">Gold Hallmark - tola ( छापावाल सुन )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart').show();" style="cursor:pointer;">
-                    Nrs.
-                    256,602.17</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart1').show();" style="cursor:pointer;">Gold Tajabi - tola ( तेजाबी सुन )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart1').show();" style="cursor:pointer;">
-                    Nrs.
-                    0.00</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart2').show();" style="cursor:pointer;">Silver - tola ( चाँदी )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart2').show();" style="cursor:pointer;">
-                    Nrs.
-                    3,905.11</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart3').show();" style="cursor:pointer;">Gold Hallmark - 10g ( छापावाल सुन )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart3').show();" style="cursor:pointer;">
-                    Nrs.
-                    219,995.00</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart4').show();" style="cursor:pointer;">Gold Tajabi - 10g ( तेजाबी सुन )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart4').show();" style="cursor:pointer;">
-                    Nrs.
-                    0.00</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart5').show();" style="cursor:pointer;">Silver - 10g ( चाँदी )</li>
-                <li onclick="$('.goldchart').hide();$('#goldchart5').show();" style="cursor:pointer;">
-                    Nrs. 3,348.00</li>
-            </ul>
-        </div>
+            <ul class="gold-silver" style="margin: 0">
+                <li onclick="$('.goldchart').hide();$('#goldchart').show();" style="cursor:pointer;">Gold Hallmark - tola ( छापावाल सुन )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart').show();" style="cursor:pointer;">
+                    Nrs.
+                    256,602.17</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart1').show();" style="cursor:pointer;">Gold Tajabi - tola ( तेजाबी सुन )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart1').show();" style="cursor:pointer;">
+                    Nrs.
+                    0.00</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart2').show();" style="cursor:pointer;">Silver - tola ( चाँदी )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart2').show();" style="cursor:pointer;">
+                    Nrs.
+                    3,905.11</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart3').show();" style="cursor:pointer;">Gold Hallmark - 10g ( छापावाल सुन )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart3').show();" style="cursor:pointer;">
+                    Nrs.
+                    219,995.00</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart4').show();" style="cursor:pointer;">Gold Tajabi - 10g ( तेजाबी सुन )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart4').show();" style="cursor:pointer;">
+                    Nrs.
+                    0.00</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart5').show();" style="cursor:pointer;">Silver - 10g ( चाँदी )</li>
+                <li onclick="$('.goldchart').hide();$('#goldchart5').show();" style="cursor:pointer;">
+                    Nrs. 3,348.00</li>
+            </ul>
+        </div>
 """
 
 # --- 2. DYNAMIC CONTENT FETCHING & EXTRACTION FUNCTIONS ---
@@ -325,7 +330,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "--- UTILITIES ---\n"
         "/date - Get today's Nepali and English date, time, and Panchang information.\n"
         "/ask <question> - Search the internet for an answer to any question. (Free Search)\n"
-        "/randompick <options> - Select a random choice from a list."
+        "/randompick <options> - Select a random choice from a list.\n"
+        "/chat <prompt> - Chat with Gemini AI.\n"
+        "/image <prompt> - Generate an image with Gemini."
     )
 
 async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -549,6 +556,76 @@ async def random_pick_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(message)
 
 
+# --- NEW HANDLERS: GEMINI AI CHAT & IMAGE ---
+
+async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /chat command by sending the prompt to Gemini."""
+    if not context.args:
+        await update.message.reply_text(
+            "🤖 Usage Error: Please type a message after /chat\n"
+            "Example: /chat write some essay about AI"
+        )
+        return
+        
+    user_prompt = " ".join(context.args)
+    thinking_message = await update.message.reply_text("🤖 *Gemini is thinking...*", parse_mode="Markdown")
+    
+    try:
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_prompt,
+        )
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=thinking_message.message_id,
+            text=response.text,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=thinking_message.message_id,
+            text=f"❌ An error occurred: {str(e)}"
+        )
+
+async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /image command by generating an image with Gemini."""
+    if not context.args:
+        await update.message.reply_text(
+            "🎨 Usage Error: Please type an image description after /image\n"
+            "Example: /image bird"
+        )
+        return
+        
+    user_prompt = " ".join(context.args)
+    thinking_message = await update.message.reply_text("🎨 *Gemini is generating your image...*", parse_mode="Markdown")
+    
+    try:
+        image_responses = ai_client.models.generate_images(
+            model='gemini-2.5-flash-image',
+            prompt=user_prompt,
+            number_of_images=1
+        )
+        
+        generated_image = image_responses.generated_images[0]
+        image_bytes = generated_image.image
+        
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=image_bytes,
+            caption=f"Here is your image: '{user_prompt}'",
+            reply_to_message_id=update.message.message_id
+        )
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=thinking_message.message_id)
+        
+    except Exception as e:
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=thinking_message.message_id,
+            text=f"❌ An error occurred: {str(e)}"
+        )
+
+
 # --- 4. MAIN FUNCTION (CRITICAL FIX FOR CONNECTION) ---
 
 def main() -> None:
@@ -581,6 +658,8 @@ def main() -> None:
         application.add_handler(CommandHandler("randompick", random_pick_command))
         application.add_handler(CommandHandler("price", price_command)) 
         application.add_handler(CommandHandler("ask", ask_command))
+        application.add_handler(CommandHandler("chat", chat_command))    # Added Chat Handler
+        application.add_handler(CommandHandler("image", image_command))  # Added Image Handler
         print("All command handlers added.")
 
 
